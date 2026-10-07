@@ -1,0 +1,32 @@
+{
+  "Encabezado": {
+    "IdDoc": {
+      "TipoeCF": 32,
+      "eNCF": "E320000000001",
+      "IndicadorMontoGravado": 1,
+      "TipoIngresos": "01",
+      "TipoPago": 1,
+      "TablaFormasPago": {
+        "FormaDePago": [{ "FormaPago": 3, "MontoPago": 1180.00 }]
+      }
+    },
+    "Emisor": {
+      "RNCEmisor": "131880738",
+      "RazonSocialEmisor": "Comercial Ejemplo, S.R.L.",
+      "DireccionEmisor": "Av. 27 de Febrero No. 100, Santo Domingo",
+      "FechaEmision": "01-10-2026"
+    },
+    "Totales": {}
+  },
+  "DetallesItems": {
+    "Item": [
+      {
+        "IndicadorFacturacion": 1,
+        "NombreItem": "Combo almuerzo",
+        "IndicadorBienoServicio": 1,
+        "CantidadItem": 2,
+        "PrecioUnitarioItem": 590.00
+      }
+    ]
+  }
+}

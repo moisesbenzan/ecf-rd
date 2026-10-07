@@ -1,0 +1,6 @@
+/ecfd
+/data/
+*.p12
+*.pfx
+*.pem
+.env

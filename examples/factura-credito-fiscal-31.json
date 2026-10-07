@@ -1,0 +1,53 @@
+{
+  "Encabezado": {
+    "IdDoc": {
+      "TipoeCF": 31,
+      "eNCF": "E310000000001",
+      "FechaVencimientoSecuencia": "31-12-2028",
+      "IndicadorMontoGravado": 0,
+      "TipoIngresos": "01",
+      "TipoPago": 2,
+      "FechaLimitePago": "31-10-2026",
+      "TablaFormasPago": {
+        "FormaDePago": [{ "FormaPago": 4, "MontoPago": 4602.00 }]
+      }
+    },
+    "Emisor": {
+      "RNCEmisor": "131880738",
+      "RazonSocialEmisor": "Comercial Ejemplo, S.R.L.",
+      "NombreComercial": "Comercial Ejemplo",
+      "DireccionEmisor": "Av. 27 de Febrero No. 100, Santo Domingo",
+      "Municipio": "010101",
+      "Provincia": "010000",
+      "TablaTelefonoEmisor": { "TelefonoEmisor": ["809-555-1234"] },
+      "CorreoEmisor": "facturacion@ejemplo.com.do",
+      "FechaEmision": "01-10-2026"
+    },
+    "Comprador": {
+      "RNCComprador": "101672919",
+      "RazonSocialComprador": "Cliente Corporativo, S.A.",
+      "CorreoComprador": "cuentasporpagar@cliente.com.do"
+    },
+    "Totales": {}
+  },
+  "DetallesItems": {
+    "Item": [
+      {
+        "IndicadorFacturacion": 1,
+        "NombreItem": "Servicio de consultoría",
+        "IndicadorBienoServicio": 2,
+        "CantidadItem": 10,
+        "UnidadMedida": 43,
+        "PrecioUnitarioItem": 350.00
+      },
+      {
+        "IndicadorFacturacion": 4,
+        "NombreItem": "Libro técnico",
+        "IndicadorBienoServicio": 1,
+        "CantidadItem": 2,
+        "PrecioUnitarioItem": 250.00,
+        "DescuentoMonto": 28.00
+      }
+    ]
+  }
+}
