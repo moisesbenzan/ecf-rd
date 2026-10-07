@@ -108,10 +108,11 @@ func ParseDateTime(s string) (time.Time, error) {
 	return time.ParseInLocation(DateTimeLayout, s, Location)
 }
 
-// ENCF is a parsed electronic fiscal receipt number: the letter E, the
-// two-digit type, and a 10-digit sequence (13 characters in total), e.g.
-// E310000000001.
+// ENCF is a parsed electronic fiscal receipt number: a series letter (E-Z
+// except P; DGII currently issues E), the two-digit type and a 10-digit
+// sequence (13 characters in total), e.g. E310000000001.
 type ENCF struct {
+	Serie     byte
 	Tipo      TipoECF
 	Secuencia int64
 }
@@ -121,8 +122,12 @@ func ParseENCF(s string) (ENCF, error) {
 	if len(s) != 13 {
 		return ENCF{}, fmt.Errorf("e-NCF %q debe tener 13 caracteres", s)
 	}
-	if s[0] != 'E' && s[0] != 'e' {
-		return ENCF{}, fmt.Errorf("e-NCF %q debe iniciar con la serie E", s)
+	serie := s[0]
+	if serie >= 'a' && serie <= 'z' {
+		serie -= 'a' - 'A'
+	}
+	if serie < 'E' || serie > 'Z' || serie == 'P' {
+		return ENCF{}, fmt.Errorf("e-NCF %q: la serie debe ser una letra entre E y Z (excepto P)", s)
 	}
 	for i := 1; i < 13; i++ {
 		if s[i] < '0' || s[i] > '9' {
@@ -138,11 +143,17 @@ func ParseENCF(s string) (ENCF, error) {
 	if seq == 0 {
 		return ENCF{}, fmt.Errorf("e-NCF %q tiene una secuencia inválida", s)
 	}
-	return ENCF{Tipo: t, Secuencia: seq}, nil
+	return ENCF{Serie: serie, Tipo: t, Secuencia: seq}, nil
 }
 
 // String formats the e-NCF.
-func (e ENCF) String() string { return fmt.Sprintf("E%02d%010d", int(e.Tipo), e.Secuencia) }
+func (e ENCF) String() string {
+	serie := e.Serie
+	if serie == 0 {
+		serie = 'E'
+	}
+	return fmt.Sprintf("%c%02d%010d", serie, int(e.Tipo), e.Secuencia)
+}
 
 // ValidRNCFormat reports whether s has the structure of an RNC (9 digits) or
 // a cédula (11 digits).

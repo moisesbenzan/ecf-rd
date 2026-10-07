@@ -10,6 +10,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils # xmllint XSD cross-check
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...

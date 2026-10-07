@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -24,6 +25,10 @@ const (
 	RecibidoECF   Kind = "recibidos/ecf"
 	RecibidoACECF Kind = "recibidos/aprobaciones"
 	AcuseEnviado  Kind = "recibidos/acuses"
+	// AcuseRecibido holds the ARECF returned by buyers for issued e-CF.
+	AcuseRecibido Kind = "emitidos/acuses"
+	// Estado holds JSON submission-tracking records.
+	Estado Kind = "estado"
 )
 
 // ErrNotFound is returned when a document does not exist.
@@ -34,6 +39,8 @@ type Store interface {
 	Put(ctx context.Context, kind Kind, name string, data []byte) error
 	Get(ctx context.Context, kind Kind, name string) ([]byte, error)
 	Exists(ctx context.Context, kind Kind, name string) (bool, error)
+	// List returns the names stored under kind, sorted.
+	List(ctx context.Context, kind Kind) ([]string, error)
 }
 
 // FS stores documents as files under a root directory.
@@ -107,6 +114,25 @@ func (s *FS) Exists(_ context.Context, kind Kind, name string) (bool, error) {
 	return err == nil, err
 }
 
+// List returns the document names of kind, sorted.
+func (s *FS) List(_ context.Context, kind Kind) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(s.root, filepath.FromSlash(string(kind))))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Type().IsRegular() && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // Memory is an in-memory Store for tests and ephemeral deployments.
 type Memory struct {
 	mu   sync.RWMutex
@@ -133,6 +159,21 @@ func (m *Memory) Get(_ context.Context, kind Kind, name string) ([]byte, error) 
 		return nil, ErrNotFound
 	}
 	return b, nil
+}
+
+// List returns the document names of kind, sorted.
+func (m *Memory) List(_ context.Context, kind Kind) ([]string, error) {
+	prefix := string(kind) + "/"
+	m.mu.RLock()
+	var out []string
+	for k := range m.data {
+		if strings.HasPrefix(k, prefix) && !strings.Contains(k[len(prefix):], "/") {
+			out = append(out, k[len(prefix):])
+		}
+	}
+	m.mu.RUnlock()
+	sort.Strings(out)
+	return out, nil
 }
 
 // Exists reports whether a document exists.

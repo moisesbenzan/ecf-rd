@@ -25,6 +25,7 @@ import (
 	"github.com/moisesbenzan/ecf-rd/internal/httpx"
 	"github.com/moisesbenzan/ecf-rd/internal/store"
 	"github.com/moisesbenzan/ecf-rd/internal/xmldsig"
+	"github.com/moisesbenzan/ecf-rd/internal/xsd"
 )
 
 const (
@@ -51,7 +52,10 @@ type Config struct {
 	RequireAuth bool
 	// Notify is invoked for every stored document (optional).
 	Notify Notifier
-	Logger *slog.Logger
+	// OnAprobacion is invoked for every valid commercial approval received
+	// for an e-CF issued by this taxpayer (optional).
+	OnAprobacion func(ctx context.Context, a *ecf.ACECF)
+	Logger       *slog.Logger
 }
 
 // Receptor serves the inbound endpoints.
@@ -140,6 +144,10 @@ func (rc *Receptor) validacionCertificado(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var seed semillaModel
+	if is := ecf.ValidateXML(xsd.Semilla, data); is.HasErrors() {
+		httpx.ErrorDetail(w, http.StatusBadRequest, "la estructura del archivo XML no es válida", is)
+		return
+	}
 	if err := xml.Unmarshal(data, &seed); err != nil || seed.Valor == "" {
 		httpx.Error(w, http.StatusBadRequest, "la estructura del archivo XML no es válida")
 		return
@@ -215,7 +223,7 @@ func (rc *Receptor) recepcion(w http.ResponseWriter, r *http.Request) {
 	}
 	name := ecf.FileName(d.RNCEmisor, d.ENCF)
 	switch {
-	case parseErr != nil || d.RNCEmisor == "" || d.ENCF == "":
+	case parseErr != nil || d.RNCEmisor == "" || d.ENCF == "" || !conformsToSchema(doc, data):
 		d.Estado, d.CodigoMotivoNoRecibido = ecf.AcuseNoRecibido, ecf.MotivoErrorEspecificacion
 	case !verifies(data):
 		d.Estado, d.CodigoMotivoNoRecibido = ecf.AcuseNoRecibido, ecf.MotivoErrorFirma
@@ -266,6 +274,10 @@ func (rc *Receptor) aprobacionComercial(w http.ResponseWriter, r *http.Request) 
 		httpx.Error(w, http.StatusBadRequest, "la estructura del archivo XML no es válida")
 		return
 	}
+	if is := ecf.ValidateXML(xsd.ACECF, data); is.HasErrors() {
+		httpx.ErrorDetail(w, http.StatusBadRequest, "la estructura del archivo XML no es válida, verificar el XSD correspondiente", is)
+		return
+	}
 	if !verifies(data) {
 		httpx.Error(w, http.StatusBadRequest, "la firma del XML no es válida")
 		return
@@ -275,12 +287,28 @@ func (rc *Receptor) aprobacionComercial(w http.ResponseWriter, r *http.Request) 
 		httpx.Error(w, http.StatusBadRequest, "el RNC emisor no corresponde a este receptor")
 		return
 	}
+	// The approval must match the e-CF we issued (Formato Aprobación
+	// Comercial, validaciones de los campos 2-6).
+	issued, err := rc.cfg.Store.Get(r.Context(), store.EmitidoECF, ecf.FileName(det.RNCEmisor, det.ENCF))
+	if err != nil {
+		httpx.Error(w, http.StatusBadRequest, "Factura no encontrada para esta Aprobación comercial.")
+		return
+	}
+	if ref, err := ecf.Unmarshal(issued); err == nil {
+		if is := ecf.ValidateACECF(&ac, ref); is.HasErrors() {
+			httpx.ErrorDetail(w, http.StatusBadRequest, "la aprobación comercial no corresponde al e-CF emitido", is)
+			return
+		}
+	}
 	name := ecf.FileName(det.RNCComprador, det.ENCF)
 	if err := rc.save(r.Context(), store.RecibidoACECF, name, data); err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "no fue posible almacenar la aprobación comercial")
 		return
 	}
 	rc.log.Info("aprobación comercial recibida", "archivo", name, "estado", det.Estado)
+	if rc.cfg.OnAprobacion != nil {
+		rc.cfg.OnAprobacion(r.Context(), &ac)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -292,6 +320,15 @@ func (rc *Receptor) save(ctx context.Context, kind store.Kind, name string, data
 		rc.cfg.Notify(ctx, kind, name, data)
 	}
 	return nil
+}
+
+// conformsToSchema validates an incoming e-CF against the XSD of its type.
+func conformsToSchema(doc *ecf.ECF, data []byte) bool {
+	d, ok := xsd.ForTipo(int(doc.Encabezado.IdDoc.TipoeCF))
+	if !ok {
+		return false
+	}
+	return !ecf.ValidateXML(d, data).HasErrors()
 }
 
 func verifies(data []byte) bool {

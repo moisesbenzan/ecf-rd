@@ -86,7 +86,7 @@ func TestMarshalOrderAndOmitEmpty(t *testing.T) {
 	if err := Complete(e); err != nil {
 		t.Fatal(err)
 	}
-	e.FechaHoraFirma = "31-10-2026 10:15:00"
+	e.FechaHoraFirma = "01-10-2026 10:15:00"
 	b, err := Marshal(e)
 	if err != nil {
 		t.Fatal(err)
@@ -256,9 +256,9 @@ func TestANECFFill(t *testing.T) {
 func TestTimbreURL(t *testing.T) {
 	e := load(t, "factura-credito-fiscal-31.json")
 	_ = Complete(e)
-	e.FechaHoraFirma = "31-10-2026 10:15:00"
+	e.FechaHoraFirma = "01-10-2026 10:15:00"
 	u := TimbreURL("https://ecf.dgii.gov.do/testecf/consultatimbre", e, "a+b/c.")
-	want := "https://ecf.dgii.gov.do/testecf/consultatimbre?rncemisor=131880738&rnccomprador=101672919&encf=E310000000001&fechaemision=01-10-2026&montototal=4602.00&fechafirma=31-10-2026%2010%3A15%3A00&codigoseguridad=a%2Bb%2Fc%2E"
+	want := "https://ecf.dgii.gov.do/testecf/consultatimbre?rncemisor=131880738&rnccomprador=101672919&encf=E310000000001&fechaemision=01-10-2026&montototal=4602.00&fechafirma=01-10-2026%2010:15:00&codigoseguridad=a%2Bb%2Fc%2E"
 	if u != want {
 		t.Fatalf("got  %s\nwant %s", u, want)
 	}

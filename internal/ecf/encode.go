@@ -71,7 +71,8 @@ func TimbreURL(host string, e *ECF, codigoSeguridad string) string {
 	b.WriteString("&montototal=")
 	b.WriteString(h.Totales.MontoTotal.String())
 	b.WriteString("&fechafirma=")
-	b.WriteString(strings.ReplaceAll(url.QueryEscape(e.FechaHoraFirma), "+", "%20"))
+	// Same encoding as DGII's example: "fechafirma=10-10-2020%2009:00:00".
+	b.WriteString(strings.ReplaceAll(e.FechaHoraFirma, " ", "%20"))
 	b.WriteString("&codigoseguridad=")
 	b.WriteString(escapeSecurityCode(codigoSeguridad))
 	return b.String()

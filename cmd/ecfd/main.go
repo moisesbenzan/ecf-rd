@@ -13,12 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/moisesbenzan/ecf-rd/internal/api"
+	"github.com/moisesbenzan/ecf-rd/internal/app"
 	"github.com/moisesbenzan/ecf-rd/internal/config"
-	"github.com/moisesbenzan/ecf-rd/internal/dgii"
-	"github.com/moisesbenzan/ecf-rd/internal/emision"
-	"github.com/moisesbenzan/ecf-rd/internal/httpx"
-	"github.com/moisesbenzan/ecf-rd/internal/receptor"
 	"github.com/moisesbenzan/ecf-rd/internal/store"
 	"github.com/moisesbenzan/ecf-rd/internal/xmldsig"
 )
@@ -48,38 +44,23 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	var client *dgii.Client
-	if signer != nil {
-		client = dgii.New(cfg.Environment, signer)
-	}
-	endpoints := dgii.EndpointsFor(cfg.Environment)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	svc := &emision.Service{RNC: cfg.RNC, Signer: signer, DGII: client, Store: st, Endpoints: endpoints}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		httpx.JSON(w, http.StatusOK, map[string]any{
-			"status":      "ok",
-			"version":     version,
-			"ambiente":    cfg.Environment,
-			"rnc":         cfg.RNC,
-			"certificado": signer != nil,
-		})
+	application, err := app.New(ctx, app.Config{
+		Environment:  cfg.Environment,
+		RNC:          cfg.RNC,
+		Signer:       signer,
+		Store:        st,
+		APIKey:       cfg.APIKey,
+		ReceptorAuth: cfg.ReceptorAuth,
+		Logger:       log,
+		Version:      version,
 	})
-	(&api.API{Emision: svc, DGII: client, Store: st, APIKey: cfg.APIKey, Logger: log}).Register(mux)
-	if signer != nil {
-		receptor.New(receptor.Config{
-			RNC:         cfg.RNC,
-			Signer:      signer,
-			Store:       st,
-			RequireAuth: cfg.ReceptorAuth,
-			Logger:      log,
-		}).Register(mux)
-	} else {
-		log.Warn("sin certificado digital: los servicios de recepción (/fe/*) y el envío a DGII están deshabilitados")
+	if err != nil {
+		return err
 	}
-
-	handler := httpx.Recover(log, httpx.Logging(log, httpx.CaseInsensitive(mux)))
+	handler := application.Handler
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler,
@@ -89,8 +70,6 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("escuchando", "addr", cfg.Addr, "ambiente", cfg.Environment, "version", version)
@@ -105,7 +84,9 @@ func run(log *slog.Logger) error {
 		log.Info("deteniendo")
 		shCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
-		return srv.Shutdown(shCtx)
+		err := srv.Shutdown(shCtx)
+		application.Wait()
+		return err
 	}
 	return nil
 }

@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/moisesbenzan/ecf-rd/internal/dgii"
 	"github.com/moisesbenzan/ecf-rd/internal/ecf"
 	"github.com/moisesbenzan/ecf-rd/internal/emision"
 	"github.com/moisesbenzan/ecf-rd/internal/httpx"
+	"github.com/moisesbenzan/ecf-rd/internal/seguimiento"
 	"github.com/moisesbenzan/ecf-rd/internal/store"
 	"github.com/moisesbenzan/ecf-rd/internal/xmldsig"
 )
@@ -21,7 +23,8 @@ import (
 // API serves /api/v1.
 type API struct {
 	Emision *emision.Service
-	DGII    *dgii.Client // nil when no certificate is configured
+	DGII    *dgii.Client         // nil when no certificate is configured
+	Tracker *seguimiento.Tracker // nil when submission is disabled
 	Store   store.Store
 	APIKey  string // when set, required in the X-API-Key header
 	Logger  *slog.Logger
@@ -31,19 +34,38 @@ type API struct {
 func (a *API) Register(mux *http.ServeMux) {
 	h := func(pattern string, f http.HandlerFunc) { mux.Handle(pattern, a.auth(f)) }
 
+	// Issuance.
 	h("POST /api/v1/ecf/validar", a.validar)
 	h("POST /api/v1/ecf/xml", a.generarXML)
 	h("POST /api/v1/ecf/emitir", a.emitir)
 	h("GET /api/v1/ecf/{archivo}", a.obtener)
+	h("GET /api/v1/ecf/{archivo}/pdf", a.pdfEmitido)
+	h("GET /api/v1/ecf/{archivo}/estado", a.seguimiento)
+	h("POST /api/v1/ecf/{archivo}/reenviar", a.reenviar)
+	h("POST /api/v1/ecf/{archivo}/entregar", a.entregar)
+	h("GET /api/v1/ecf/{archivo}/acuse", a.acuse)
+	h("GET /api/v1/envios", a.envios)
+	h("POST /api/v1/anulacion", a.anulacion)
+
+	// Received documents.
+	h("GET /api/v1/recibidos", a.recibidos)
+	h("GET /api/v1/recibidos/{archivo}", a.recibido)
+	h("GET /api/v1/recibidos/{archivo}/pdf", a.pdfRecibido)
+	h("POST /api/v1/recibidos/{archivo}/aprobacion", a.aprobarRecibido)
+	h("POST /api/v1/aprobacion-comercial", a.aprobacion)
+
+	// DGII queries.
 	h("GET /api/v1/dgii/resultado/{trackid}", a.resultado)
 	h("GET /api/v1/dgii/estado", a.estado)
 	h("GET /api/v1/dgii/trackids", a.trackIDs)
 	h("GET /api/v1/dgii/rfce", a.consultaRFCE)
 	h("GET /api/v1/dgii/directorio", a.directorio)
-	h("POST /api/v1/aprobacion-comercial", a.aprobacion)
-	h("POST /api/v1/anulacion", a.anulacion)
+
+	// Utilities.
 	h("POST /api/v1/xml/firmar", a.firmar)
 	h("POST /api/v1/xml/verificar", a.verificar)
+	h("POST /api/v1/xml/validar/{esquema}", a.validarXML)
+	h("GET /api/v1/tablas/{tabla}", a.tablas)
 }
 
 func (a *API) auth(next http.Handler) http.Handler {
@@ -87,13 +109,44 @@ func (a *API) decodeECF(w http.ResponseWriter, r *http.Request) (*ecf.ECF, bool)
 	return &e, true
 }
 
+func intParam(r *http.Request, name string, def int) int {
+	if v, err := strconv.Atoi(r.URL.Query().Get(name)); err == nil {
+		return v
+	}
+	return def
+}
+
+func options(r *http.Request) emision.Options {
+	return emision.Options{
+		Completar:       boolParam(r, "completar", true),
+		Estricto:        boolParam(r, "estricto", true),
+		Enviar:          boolParam(r, "enviar", false),
+		Esperar:         time.Duration(intParam(r, "esperar", 0)) * time.Second,
+		LineasPorPagina: intParam(r, "lineasporpagina", 0),
+	}
+}
+
+func writeIssuanceError(w http.ResponseWriter, err error) {
+	var ve *emision.ValidationError
+	switch {
+	case errors.As(err, &ve):
+		httpx.ErrorDetail(w, http.StatusUnprocessableEntity, "el documento no es válido", ve.Issues)
+	case errors.Is(err, emision.ErrDuplicado):
+		httpx.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, store.ErrNotFound):
+		httpx.Error(w, http.StatusNotFound, "documento no encontrado")
+	default:
+		httpx.Error(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
 // validar completes (unless ?completar=false) and validates an e-CF.
 func (a *API) validar(w http.ResponseWriter, r *http.Request) {
 	e, ok := a.decodeECF(w, r)
 	if !ok {
 		return
 	}
-	issues, err := a.Emision.Preparar(e, boolParam(r, "completar", true))
+	issues, err := a.Emision.Preparar(r.Context(), e, options(r))
 	var ve *emision.ValidationError
 	if err != nil && !errors.As(err, &ve) {
 		httpx.Error(w, http.StatusBadRequest, err.Error())
@@ -108,6 +161,7 @@ func (a *API) validar(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.JSON(w, status, map[string]any{
 		"valido":    !issues.HasErrors(),
+		"resumen":   emision.EsResumen(e),
 		"hallazgos": issues,
 		"ecf":       e,
 	})
@@ -119,7 +173,7 @@ func (a *API) generarXML(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if issues, err := a.Emision.Preparar(e, boolParam(r, "completar", true)); err != nil {
+	if issues, err := a.Emision.Preparar(r.Context(), e, options(r)); err != nil {
 		httpx.ErrorDetail(w, http.StatusUnprocessableEntity, err.Error(), issues)
 		return
 	}
@@ -137,17 +191,9 @@ func (a *API) emitir(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := a.Emision.Emitir(r.Context(), e, emision.Options{
-		Completar: boolParam(r, "completar", true),
-		Enviar:    boolParam(r, "enviar", false),
-	})
-	var ve *emision.ValidationError
-	switch {
-	case errors.As(err, &ve):
-		httpx.ErrorDetail(w, http.StatusUnprocessableEntity, "el documento no es válido", ve.Issues)
-		return
-	case err != nil:
-		httpx.Error(w, http.StatusInternalServerError, err.Error())
+	res, err := a.Emision.Emitir(r.Context(), e, options(r))
+	if err != nil {
+		writeIssuanceError(w, err)
 		return
 	}
 	if httpx.WantsXML(r) {
@@ -157,21 +203,21 @@ func (a *API) emitir(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, res)
 }
 
+// fileName normalizes RNC+eNCF[.xml].
+func fileName(s string) string {
+	s = strings.TrimSuffix(strings.TrimSuffix(s, ".pdf"), ".xml")
+	return strings.ToUpper(s) + ".xml"
+}
+
 // obtener returns a stored issued e-CF by file name (RNC+eNCF.xml).
 func (a *API) obtener(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("archivo")
-	if !strings.HasSuffix(name, ".xml") {
-		name += ".xml"
-	}
-	// File names are RNC + e-NCF; the series letter is upper-case.
-	name = strings.ToUpper(strings.TrimSuffix(name, ".xml")) + ".xml"
-	b, err := a.Store.Get(r.Context(), store.EmitidoECF, name)
-	if errors.Is(err, store.ErrNotFound) {
-		httpx.Error(w, http.StatusNotFound, "documento no encontrado")
-		return
-	}
+	a.serveStored(w, r, store.EmitidoECF)
+}
+
+func (a *API) serveStored(w http.ResponseWriter, r *http.Request, kind store.Kind) {
+	b, err := a.Store.Get(r.Context(), kind, fileName(r.PathValue("archivo")))
 	if err != nil {
-		httpx.Error(w, http.StatusInternalServerError, err.Error())
+		writeIssuanceError(w, err)
 		return
 	}
 	httpx.XML(w, http.StatusOK, b)
@@ -257,7 +303,7 @@ func (a *API) aprobacion(w http.ResponseWriter, r *http.Request) {
 	}
 	signed, env, err := a.Emision.FirmarAprobacion(r.Context(), &ac, boolParam(r, "enviar", false))
 	if err != nil {
-		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
+		writeIssuanceError(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, map[string]any{"xml": string(signed), "envio": env})
@@ -271,6 +317,11 @@ func (a *API) anulacion(w http.ResponseWriter, r *http.Request) {
 	}
 	signed, env, err := a.Emision.Anular(r.Context(), &an, boolParam(r, "enviar", false))
 	if err != nil {
+		var ve *emision.ValidationError
+		if errors.As(err, &ve) {
+			writeIssuanceError(w, err)
+			return
+		}
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}

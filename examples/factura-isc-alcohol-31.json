@@ -1,0 +1,42 @@
+{
+  "Encabezado": {
+    "IdDoc": {
+      "TipoeCF": 31,
+      "eNCF": "E310000000002",
+      "FechaVencimientoSecuencia": "31-12-2028",
+      "IndicadorMontoGravado": 0,
+      "TipoIngresos": "01",
+      "TipoPago": 1
+    },
+    "Emisor": {
+      "RNCEmisor": "131880738",
+      "RazonSocialEmisor": "Destilería Ejemplo, S.R.L.",
+      "DireccionEmisor": "Autopista Duarte Km 20",
+      "FechaEmision": "01-10-2026"
+    },
+    "Comprador": { "RNCComprador": "101672919", "RazonSocialComprador": "Colmado Ejemplo, S.R.L." },
+    "Totales": {
+      "ImpuestosAdicionales": {
+        "ImpuestoAdicional": [{ "TipoImpuesto": "014", "TasaImpuestoAdicional": 617.93 }]
+      }
+    }
+  },
+  "DetallesItems": {
+    "Item": [
+      {
+        "IndicadorFacturacion": 1,
+        "NombreItem": "RON 16/700 ML",
+        "IndicadorBienoServicio": 1,
+        "CantidadItem": 1,
+        "UnidadMedida": 6,
+        "CantidadReferencia": 16,
+        "UnidadReferencia": 5,
+        "TablaSubcantidad": { "SubcantidadItem": [{ "Subcantidad": 0.65, "CodigoSubcantidad": 24 }] },
+        "GradosAlcohol": 4.30,
+        "PrecioUnitarioReferencia": 80.00,
+        "PrecioUnitarioItem": 1063.97,
+        "TablaImpuestoAdicional": { "ImpuestoAdicional": [{ "TipoImpuesto": "014" }, { "TipoImpuesto": "031" }] }
+      }
+    ]
+  }
+}
