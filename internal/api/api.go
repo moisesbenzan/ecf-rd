@@ -39,7 +39,6 @@ func (a *API) Register(mux *http.ServeMux) {
 	h("POST /api/v1/ecf/xml", a.generarXML)
 	h("POST /api/v1/ecf/emitir", a.emitir)
 	h("GET /api/v1/ecf/{archivo}", a.obtener)
-	h("GET /api/v1/ecf/{archivo}/pdf", a.pdfEmitido)
 	h("GET /api/v1/ecf/{archivo}/estado", a.seguimiento)
 	h("POST /api/v1/ecf/{archivo}/reenviar", a.reenviar)
 	h("POST /api/v1/ecf/{archivo}/entregar", a.entregar)
@@ -50,7 +49,6 @@ func (a *API) Register(mux *http.ServeMux) {
 	// Received documents.
 	h("GET /api/v1/recibidos", a.recibidos)
 	h("GET /api/v1/recibidos/{archivo}", a.recibido)
-	h("GET /api/v1/recibidos/{archivo}/pdf", a.pdfRecibido)
 	h("POST /api/v1/recibidos/{archivo}/aprobacion", a.aprobarRecibido)
 	h("POST /api/v1/aprobacion-comercial", a.aprobacion)
 
@@ -205,7 +203,7 @@ func (a *API) emitir(w http.ResponseWriter, r *http.Request) {
 
 // fileName normalizes RNC+eNCF[.xml].
 func fileName(s string) string {
-	s = strings.TrimSuffix(strings.TrimSuffix(s, ".pdf"), ".xml")
+	s = strings.TrimSuffix(s, ".xml")
 	return strings.ToUpper(s) + ".xml"
 }
 

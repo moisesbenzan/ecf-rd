@@ -10,7 +10,7 @@ It implements the documentation published at
 | XSD e-CF 31–47, RFCE 32, ARECF, ACECF, ANECF, Semilla v1.0 (embedded verbatim) | `internal/xsd`: every document is checked against its official schema |
 | Formato Comprobante Fiscal Electrónico (e-CF) v1.0 (Oct 2025), Tablas I–IV | `internal/ecf`: model, per-type requirements, calculations, validations, code tables |
 | Formato Resumen Factura de Consumo, Acuse de Recibo, Aprobación Comercial, Anulación de e-NCF | `internal/ecf`: models and validators |
-| Informe Técnico e-CF (Mar 2026) | Tolerance and rounding rules, ISC and other additional taxes (§12–15), Norma 07-07 / 03-08 / 10-07, operating model (§8–9), printed representation (§18), contingency (§19) |
+| Informe Técnico e-CF (Mar 2026) | Tolerance and rounding rules, ISC and other additional taxes (§12–15), Norma 07-07 / 03-08 / 10-07, operating model (§8–9), timbre URL contents (§18), contingency (§19) |
 | Descripción Técnica Servicios DGII (Jan 2026) | `internal/dgii`: client for every service in the three environments |
 | Descripción Técnica Servicios Emisores Electrónicos (Jan 2026) | `internal/receptor`: the receiver endpoints; file names and character rules |
 | Firmado de e-CF | `internal/xmldsig`: enveloped XMLDSig, C14N, RSA-SHA256 |
@@ -52,7 +52,7 @@ Validation applies the requirement matrix for each type and these business rules
 
 ### Signing
 - Enveloped XMLDSig that matches DGII's reference structure, using a `.p12`/`.pfx` certificate.
-- Generates the security code and the timbre (QR) URLs for both e-CF and RFCE.
+- Generates the security code and the timbre URLs (the content of the QR code on printed invoices) for both e-CF and RFCE, returned by `emitir` so your own printing system can render them.
 - Signatures verify under three independent implementations: this service, goxmldsig, and libxml2 C14N with OpenSSL.
 
 ### Operating model
@@ -71,17 +71,7 @@ State is persisted as JSON in the store and reloaded on restart.
 - Incoming approvals (ACECF) must match the e-CF actually issued: issuer RNC, e-NCF, issue date, total and buyer.
 
 ### Receiving documents
-Received e-CF can be listed and viewed as XML or PDF. Commercial approvals are built from the stored e-CF and sent to the issuer (looked up in the DGII directory) and to DGII. Before sending, the service checks that DGII has accepted the e-CF.
-
-### Printed representation (PDF)
-The layout follows Informe Técnico §18:
-- Issuer, buyer and type blocks, with the modification code in words for credit and debit notes.
-- Detail columns that appear only when needed: unit in words, alcohol degrees, PVP, ISC específico, ISC ad valorem, ITBIS, discount and surcharge.
-- Totals, including ISC, CDT and propina legal, global discounts, and the foreign-currency block.
-- Per-page subtotals when the document is paginated, plus the contingency legend when it applies.
-- The QR code is at least 22 mm square, placed 2 cm from the edge with a 3 mm quiet zone. The security code and signature date are printed below it.
-
-**QR version.** DGII requires QR version 8. The service uses version 8 when the URL fits, but a complete ConsultaTimbre URL is about 200 bytes and version 8 holds at most 192. Longer URLs use the next version up, which any reader can decode.
+Received e-CF can be listed and viewed as XML. Commercial approvals are built from the stored e-CF and sent to the issuer (looked up in the DGII directory) and to DGII. Before sending, the service checks that DGII has accepted the e-CF.
 
 ## Running
 
@@ -120,7 +110,6 @@ The receiver services must be reachable from the internet over HTTPS on standard
 | POST | `/ecf/xml` | Unsigned XML |
 | POST | `/ecf/emitir` | Complete, validate, sign and store the e-CF, and optionally submit it (see the parameters below) |
 | GET | `/ecf/{RNC+eNCF}` | Signed XML |
-| GET | `/ecf/{RNC+eNCF}/pdf` | Printed representation. The contingency legend is added automatically while DGII has not received the document. |
 | GET | `/ecf/{RNC+eNCF}/estado` | Tracking record: DGII state, TrackId, messages, contingency, delivery, commercial approval |
 | POST | `/ecf/{RNC+eNCF}/reenviar` | Retry now, or submit an e-CF that was issued without `enviar` |
 | POST | `/ecf/{RNC+eNCF}/entregar` | Retry delivery to the buyer |
@@ -136,14 +125,14 @@ The receiver services must be reachable from the internet over HTTPS on standard
 | `estricto` | `true` | Treat amounts outside DGII's tolerance as errors instead of warnings |
 | `enviar` | `false` | Submit the document to DGII through the tracker |
 | `esperar` | — | Seconds to wait for DGII's final result |
-| `lineasporpagina` | — | Lines per printed page; builds the `Paginacion` section |
+| `lineasporpagina` | — | Lines per printed page; builds the `Paginacion` section of the XML |
 
 ### Received documents
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/recibidos` | Received e-CF, with commercial approval status |
-| GET | `/recibidos/{archivo}` · `/pdf` | XML or printed representation |
+| GET | `/recibidos/{archivo}` | Signed XML |
 | POST | `/recibidos/{archivo}/aprobacion?enviar=true` | `{"estado":1}` accepts; `{"estado":2,"motivo":"..."}` rejects. Sent to the issuer and to DGII. |
 | POST | `/aprobacion-comercial` | Sign (and send) a complete ACECF |
 
@@ -178,13 +167,12 @@ Example payloads are in `examples/`: a credit-fiscal invoice, a consumer invoice
 cmd/ecfd             entry point
 internal/app         wiring (shared by main and the end-to-end test)
 internal/xsd         embedded official XSDs and the pure-Go schema validator
-internal/ecf         models, Tablas I–IV, calculations (taxes, currency, pagination), validators, XML, QR URLs
+internal/ecf         models, Tablas I–IV, calculations (taxes, currency, pagination), validators, XML, timbre URLs
 internal/xmldsig     XMLDSig signing and verification, PKCS#12 loading
 internal/dgii        DGII web services client; client for other taxpayers' receivers
 internal/seguimiento submission tracking, contingency, result polling, delivery, approvals
 internal/emision     issuance and commercial-approval orchestration
 internal/receptor    inbound /fe/* endpoints
-internal/ri          printed representation (PDF + QR)
 internal/api         business REST API
 internal/store       document storage (filesystem, memory)
 ```
@@ -201,9 +189,11 @@ What the suite covers:
 - The code tables are compared with the XSD enumerations.
 - Signatures are verified by independent verifiers.
 - The tracker runs through an outage, contingency and recovery using a fake clock.
-- An end-to-end test runs two live instances (issuer and buyer) against a fake DGII: issue → TrackId → accepted → delivery → ARECF → commercial approval → PDF, plus the RFCE path and duplicate rejection.
+- An end-to-end test runs two live instances (issuer and buyer) against a fake DGII: issue → TrackId → accepted → delivery → ARECF → commercial approval, plus the RFCE path and duplicate rejection.
 
 ## Notes and limits
+
+- **Printed representation is out of scope.** The service produces everything a printed invoice needs (signed XML, security code, signature date, timbre URL, `Paginacion` subtotals, and a `contingencia` flag in the tracking record), but rendering PDFs is left to the calling system.
 
 - **Schema defects.** The official schemas contain two defects that strict processors reject but DGII's .NET stack tolerates: a type name with a leading space in ECF-31, and a non-XSD `(?:` group in RFCE-32. The embedded validator handles both the way .NET does. The `xmllint` cross-check runs against patched copies.
 - **ISC rates.** Specific ISC amounts (codes 006–022) are adjusted by DGII every quarter. Pass the current rate in `Totales.ImpuestosAdicionales[].TasaImpuestoAdicional`. Otherwise the Tabla I default is used, with a warning.

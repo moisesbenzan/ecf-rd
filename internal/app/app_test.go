@@ -210,19 +210,6 @@ func TestEndToEndOperatingModel(t *testing.T) {
 		return st.Aprobacion != nil && st.Aprobacion.Estado == 1
 	})
 
-	// Printed representation.
-	req, _ := http.NewRequest("GET", issuer.URL+"/api/v1/ecf/"+res.Archivo+"/pdf", nil)
-	req.Header.Set("X-API-Key", "k")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pdf, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != 200 || !bytes.HasPrefix(pdf, []byte("%PDF")) {
-		t.Fatalf("pdf: %d", resp.StatusCode)
-	}
-
 	// Duplicate e-NCF is refused.
 	if code := call(t, "POST", issuer.URL+"/api/v1/ecf/emitir", body, nil); code != http.StatusConflict {
 		t.Fatalf("duplicate: %d", code)

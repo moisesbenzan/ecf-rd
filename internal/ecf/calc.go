@@ -22,8 +22,6 @@ type Computed struct {
 	// ISCItem and OtrosItem are the selective consumption taxes and the
 	// other additional taxes per line (unrounded).
 	ISCItem, OtrosItem []decimal.Decimal
-	// ISCEspecificoItem and ISCAdValoremItem split ISCItem per class.
-	ISCEspecificoItem, ISCAdValoremItem []decimal.Decimal
 	// DescuentoNorma1007 is the sum of global discounts flagged with
 	// IndicadorNorma1007, which reduce ValorPagar but not the tax bases.
 	DescuentoNorma1007 decimal.Decimal
@@ -117,7 +115,6 @@ func Compute(e *ECF) (Computed, error) {
 	c.DescuentoNorma1007 = norma
 	imp := computeImpuestos(e, incluido, hasNorma, desc, rec)
 	c.ISCItem, c.OtrosItem = imp.iscItem, imp.otrosItem
-	c.ISCEspecificoItem, c.ISCAdValoremItem = imp.espItem, imp.advItem
 	c.Impuestos, c.MontoImpuestoAdicional = imp.totales()
 
 	over := tasas(e)
@@ -179,29 +176,6 @@ func Compute(e *ECF) (Computed, error) {
 	c.HasI1, c.HasI2, c.HasI3 = has[ITBISTasa1], has[ITBISTasa2], has[ITBISTasa3]
 	c.HasExento, c.HasNoFact = has[Exento], has[NoFacturable]
 	return c, nil
-}
-
-// ItemITBIS returns the ITBIS of line i: (taxable base + ISC) × rate, where
-// the base excludes ITBIS when IndicadorMontoGravado = 1.
-func ItemITBIS(e *ECF, c *Computed, i int) decimal.Decimal {
-	it := &e.DetallesItems.Item[i]
-	var rate decimal.Decimal
-	switch it.IndicadorFacturacion {
-	case ITBISTasa1:
-		rate = TasaITBIS1
-	case ITBISTasa2:
-		rate = TasaITBIS2
-	default:
-		return decimal.Zero
-	}
-	base := it.MontoItem
-	if montoGravadoIncluido(e) {
-		base = div(base, one.Add(rate))
-	}
-	if i < len(c.ISCItem) {
-		base = base.Add(c.ISCItem[i])
-	}
-	return mul(base, rate).Round(2)
 }
 
 func decPtr(d decimal.Decimal) *decimal.Decimal { return &d }

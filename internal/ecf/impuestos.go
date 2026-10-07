@@ -168,8 +168,6 @@ type impuestosCalculados struct {
 	porCodigo map[string]decimal.Decimal // unrounded amount per code
 	iscItem   []decimal.Decimal          // ISC (specific + ad valorem) per item, unrounded
 	otrosItem []decimal.Decimal          // other additional taxes (001-005) per item, unrounded
-	espItem   []decimal.Decimal          // specific ISC per item, unrounded
-	advItem   []decimal.Decimal          // ad valorem ISC per item, unrounded
 	tasa      map[string]decimal.Decimal
 }
 
@@ -180,8 +178,6 @@ func computeImpuestos(e *ECF, incluido, norma1007 bool, globalD, globalR decimal
 		porCodigo: map[string]decimal.Decimal{},
 		iscItem:   make([]decimal.Decimal, len(e.DetallesItems.Item)),
 		otrosItem: make([]decimal.Decimal, len(e.DetallesItems.Item)),
-		espItem:   make([]decimal.Decimal, len(e.DetallesItems.Item)),
-		advItem:   make([]decimal.Decimal, len(e.DetallesItems.Item)),
 		tasa:      map[string]decimal.Decimal{},
 	}
 	items := e.DetallesItems.Item
@@ -234,7 +230,6 @@ func computeImpuestos(e *ECF, incluido, norma1007 bool, globalD, globalR decimal
 			}
 		}
 		res.iscItem[i] = iscEsp
-		res.espItem[i] = iscEsp
 		for _, c := range codes {
 			info, ok := TablaImpuestos[c]
 			if !ok {
@@ -284,7 +279,6 @@ func computeImpuestos(e *ECF, incluido, norma1007 bool, globalD, globalR decimal
 			}
 			if info.EsISC() {
 				res.iscItem[i] = res.iscItem[i].Add(amt)
-				res.advItem[i] = res.advItem[i].Add(amt)
 			} else {
 				res.otrosItem[i] = res.otrosItem[i].Add(amt)
 			}

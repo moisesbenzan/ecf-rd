@@ -9,7 +9,6 @@ import (
 	"github.com/moisesbenzan/ecf-rd/internal/ecf"
 	"github.com/moisesbenzan/ecf-rd/internal/emision"
 	"github.com/moisesbenzan/ecf-rd/internal/httpx"
-	"github.com/moisesbenzan/ecf-rd/internal/ri"
 	"github.com/moisesbenzan/ecf-rd/internal/seguimiento"
 	"github.com/moisesbenzan/ecf-rd/internal/store"
 	"github.com/moisesbenzan/ecf-rd/internal/xmldsig"
@@ -111,55 +110,6 @@ func (a *API) envios(w http.ResponseWriter, r *http.Request) {
 	}
 	list := a.Tracker.List(seguimiento.Estado(r.URL.Query().Get("estado")), intParam(r, "limite", 100))
 	httpx.JSON(w, http.StatusOK, list)
-}
-
-func (a *API) renderPDF(w http.ResponseWriter, r *http.Request, kind store.Kind, contingencia bool) {
-	archivo := fileName(r.PathValue("archivo"))
-	b, err := a.Store.Get(r.Context(), kind, archivo)
-	if err != nil {
-		writeIssuanceError(w, err)
-		return
-	}
-	e, err := ecf.Unmarshal(b)
-	if err != nil {
-		httpx.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	code, err := xmldsig.SecurityCode(b)
-	if err != nil {
-		httpx.Error(w, http.StatusUnprocessableEntity, "el documento no está firmado")
-		return
-	}
-	ep := a.Emision.Endpoints
-	url := ecf.TimbreURL(ep.ConsultaTimbre, e, code)
-	if emision.EsResumen(e) {
-		url = ecf.TimbreFCURL(ep.ConsultaTimbreFC, e, code)
-	}
-	pdf, err := ri.Render(e, ri.Opciones{CodigoSeguridad: code, URLTimbre: url, Contingencia: contingencia})
-	if err != nil {
-		httpx.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", `inline; filename="`+archivo[:len(archivo)-4]+`.pdf"`)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(pdf)
-}
-
-// pdfEmitido renders the printed representation of an issued e-CF. The
-// contingency legend is printed while DGII has not received the document.
-func (a *API) pdfEmitido(w http.ResponseWriter, r *http.Request) {
-	contingencia := boolParam(r, "contingencia", false)
-	if a.Tracker != nil {
-		if reg, ok := a.Tracker.Get(fileName(r.PathValue("archivo"))); ok && reg.Contingencia {
-			contingencia = true
-		}
-	}
-	a.renderPDF(w, r, store.EmitidoECF, contingencia)
-}
-
-func (a *API) pdfRecibido(w http.ResponseWriter, r *http.Request) {
-	a.renderPDF(w, r, store.RecibidoECF, false)
 }
 
 func (a *API) recibidos(w http.ResponseWriter, r *http.Request) {
